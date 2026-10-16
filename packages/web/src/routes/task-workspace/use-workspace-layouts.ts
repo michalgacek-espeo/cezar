@@ -9,6 +9,7 @@ import {
   activeLayout as activeLayoutOf,
   closeColumn as closeColumnOf,
   closeLayout as closeLayoutOf,
+  dropView as dropViewOn,
   moveColumn as moveColumnOf,
   openDeepLink as openDeepLinkOn,
   openInBrowser as openInBrowserOn,
@@ -81,6 +82,8 @@ export interface WorkspaceLayouts {
   /** The deep-link entry (`/tasks/:id/changes` and friends) — idempotent, so a refresh does not
    *  pile up cards. Called from an effect by the route, not during render. */
   openDeepLink: (view: ViewId) => void
+  /** A view tab dropped on the workspace (see `dropView`). */
+  dropView: (view: ViewId, at: number, mode: 'insert' | 'replace') => void
 }
 
 /** How long a burst of changes is collected before one save goes out. Long enough that a whole
@@ -338,6 +341,11 @@ export function useWorkspaceLayouts(taskId: string): WorkspaceLayouts {
       [onActive],
     ),
     openDeepLink: useCallback((view: ViewId) => setState((current) => openDeepLinkOn(current, view)), []),
+    dropView: useCallback(
+      (view: ViewId, at: number, mode: 'insert' | 'replace') =>
+        setState((current) => dropViewOn(current, view, at, mode)),
+      [],
+    ),
     setColumnBrowser: useCallback(
       (index: number, browser: BrowserState) =>
         onActive((current, name) => setColumnBrowserOf(current, name, index, browser)),

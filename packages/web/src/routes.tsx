@@ -344,6 +344,14 @@ export const AppRoutes = memo(function AppRoutes() {
           }
         />
         <Route
+          path="tasks/:id/chat"
+          element={
+            <Suspense fallback={<ThreadLoading />}>
+              <TaskWorkspaceRoute view="session" />
+            </Suspense>
+          }
+        />
+        <Route
           path="tasks/:id/changes"
           element={
             <Suspense fallback={<GitTabLoading tab="changes" />}>

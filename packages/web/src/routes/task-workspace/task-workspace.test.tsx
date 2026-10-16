@@ -156,7 +156,8 @@ describe('the task workspace (main)', () => {
     renderWorkspace()
     await ready()
 
-    expect(cardNames()).toEqual(['Chat', 'Changes', 'Commits', 'Code', 'Terminal'])
+    // Terminal has no tab: the Terminal button is its one control.
+    expect(cardNames()).toEqual(['Chat', 'Changes', 'Commits', 'Code'])
     expect(activeCard()).toBe('Chat')
     // One strip, never both: the old route links are gone from the header.
     expect(screen.queryByRole('link', { name: 'Changes' })).toBeNull()
@@ -237,9 +238,46 @@ describe('the task workspace (main)', () => {
   it('opens /terminal as its own card', async () => {
     stubFetch()
     renderWorkspace('terminal')
-    await ready()
-    await waitFor(() => expect(activeCard()).toBe('Terminal'))
     expect((await screen.findByTestId('terminal')).dataset.fill).toBe('')
+    // No tab stands for it; the Terminal button stays lit while the shells fill a column.
+    const toggle = document.querySelector('[data-action="toggle-terminal"]') as HTMLButtonElement
+    expect(toggle.getAttribute('aria-pressed')).toBe('true')
+    expect(toggle.textContent).toContain('in column')
+  })
+
+  it('splits the screen when a view tab is dropped beside the chat', async () => {
+    stubFetch()
+    renderWorkspace()
+    await ready()
+
+    const tab = document.querySelector('[data-slot="layout-card"][data-fixed="changes"]') as HTMLElement
+    const data = new Map<string, string>()
+    const dataTransfer = {
+      setData: (type: string, value: string) => data.set(type, value),
+      getData: (type: string) => data.get(type) ?? '',
+      get types() {
+        return [...data.keys()]
+      },
+      effectAllowed: 'all',
+      dropEffect: 'none',
+    }
+    fireEvent.dragStart(tab, { dataTransfer })
+    const zones = await waitFor(() => {
+      const found = document.querySelectorAll('[data-slot="view-drop-zones"] [data-drop-zone="insert"]')
+      expect(found.length).toBe(2)
+      return found
+    })
+    fireEvent.dragOver(zones[1]!, { dataTransfer })
+    fireEvent.drop(zones[1]!, { dataTransfer })
+
+    // The fixed Chat card stays one view; the pair lands in a saved layout of its own.
+    await waitFor(() => expect(activeCard()).toBe('Chat + Changes'))
+    expect(document.querySelector('[data-slot="view-drop-zones"]')).toBeNull()
+    await waitFor(() => {
+      const saved = reviveState(hostLayouts.r1 ?? null)
+      const built = saved.layouts.find((layout) => layout.name === 'Chat + Changes')
+      expect(built?.columns.map((column) => column.view)).toEqual(['session', 'changes'])
+    })
   })
 })
 

@@ -4,7 +4,6 @@ import {
   LoaderCircleIcon,
   Maximize2Icon,
   MessageSquareTextIcon,
-  NotebookTextIcon,
   SearchXIcon,
   TerminalIcon,
 } from 'lucide-react'
@@ -46,10 +45,11 @@ import { ThreadLoading } from '../task-thread/thread-loading'
 import { reduceThread } from '../task-thread/thread-state'
 import { readDrawerState, writeDrawerState, type DrawerState } from './drawer-state'
 import { LayoutCards } from './layout-cards'
-import { fixedViewOf, VIEW_IDS, type ViewId } from './layout-state'
+import { FIXED_VIEW_ORDER, fixedViewOf, VIEW_IDS, type ViewId } from './layout-state'
 import { FullViewExit, usePanelCover, WorkspaceMaximizeContext } from './maximize'
 import { useWorkspaceLayouts } from './use-workspace-layouts'
 import { AvailableViewsContext } from './view-picker'
+import { ViewDropZones } from './view-drop-zones'
 import { WorkspaceColumns, type ColumnActions } from './workspace-columns'
 
 /** Lazy: xterm is the heaviest thing on this screen, and most visits never open a shell. */
@@ -125,8 +125,6 @@ export function TaskWorkspaceRoute({ view }: { view?: ViewId }) {
   return <WorkspaceView run={run.data} deepLinkView={view} onMarkedUnread={suppressAutoReadFor} />
 }
 
-/** The fixed cards, left to right. Chat is home; the graph is the task's shape, so it is next. */
-const FIXED_VIEW_ORDER: readonly ViewId[] = ['session', 'graph', 'changes', 'commits', 'files', 'terminal']
 
 function DeepLinkLoading({ view }: { view?: ViewId }) {
   if (view === 'files') return <GitTabLoading tab="files" />
@@ -219,6 +217,31 @@ function WorkspaceView({
   )
   const createLayout = useCallback(() => addLayout(), [addLayout])
 
+  // A view tab being dragged: the stage shows its drop zones until the drag ends. Set a tick late,
+  // because changing the page under a drag that has only just started can cancel it.
+  const [draggingView, setDraggingView] = useState<ViewId | null>(null)
+  const startViewDrag = useCallback((view: ViewId) => {
+    setTimeout(() => setDraggingView(view), 0)
+  }, [])
+  const endViewDrag = useCallback(() => setDraggingView(null), [])
+  const dropView = layouts.dropView
+  const dropViewHere = useCallback(
+    (view: ViewId, at: number, mode: 'insert' | 'replace') => {
+      setDraggingView(null)
+      dropView(view, at, mode)
+    },
+    [dropView],
+  )
+  const openViewBeside = useCallback(
+    (view: ViewId) => {
+      const count = layouts.layout?.columns.length ?? 0
+      dropView(view, count, 'insert')
+    },
+    [dropView, layouts.layout?.columns.length],
+  )
+  const columnCount = layouts.layout?.columns.length ?? 0
+  const closeColumnByDrop = fixedActive === null && columnCount > 1 ? layouts.closeColumn : undefined
+
   // The drawer: browser-local open + height, per task (spec §6). Read during render on a changed
   // task id, so run A's drawer never carries into run B.
   const [drawer, setDrawer] = useState<DrawerState>(() => readDrawerState(run.id))
@@ -266,39 +289,61 @@ function WorkspaceView({
         onRename={renameLayout}
         onClose={closeLayout}
         onCreate={createLayout}
+        notesHref={`/tasks/${run.id}/notes`}
+        onViewDragStart={startViewDrag}
+        onViewDragEnd={endViewDrag}
+        onOpenBeside={openViewBeside}
+        onColumnDropClose={closeColumnByDrop}
       />
     ),
-    [cardLayouts, layouts.state.active, fixedViews, fixedActive, openDeepLink, selectLayout, renameLayout, closeLayout, createLayout],
+    [
+      cardLayouts,
+      layouts.state.active,
+      fixedViews,
+      fixedActive,
+      openDeepLink,
+      selectLayout,
+      renameLayout,
+      closeLayout,
+      createLayout,
+      run.id,
+      startViewDrag,
+      endViewDrag,
+      openViewBeside,
+      closeColumnByDrop,
+    ],
   )
 
   const drawerOpen = drawer.open
   const trailing = useMemo(
     () => (
       <div className="mb-1 flex shrink-0 items-center gap-0.5">
-        <Button asChild variant="ghost" size="icon-sm" className="text-muted-foreground">
-          <Link to={`/tasks/${run.id}/notes`} aria-label="Notes" title="Notes — the handoff journal">
-            <NotebookTextIcon aria-hidden="true" />
-          </Link>
-        </Button>
         {terminalAllowed ? (
+          // The terminal's ONE control: it opens the drawer under any view, and stays lit while
+          // the shells sit in a column of this layout instead.
           <Button
-            variant="ghost"
-            size="icon-sm"
+            variant="outline"
+            size="sm"
             data-action="toggle-terminal"
             aria-label={drawerOpen ? 'Hide terminal' : 'Show terminal'}
-            aria-pressed={drawerOpen}
+            aria-pressed={drawerOpen || terminalColumnShown}
             disabled={terminalColumnShown}
             title={
               terminalColumnShown
-                ? 'The terminal is open in a window of this layout'
+                ? 'The terminal is open in a column of this layout'
                 : drawerOpen
                   ? 'Hide terminal — processes keep running (`)'
                   : 'Terminal (`)'
             }
-            className={drawerOpen && !terminalColumnShown ? 'bg-muted text-foreground' : 'text-muted-foreground'}
+            className={cn(
+              'shrink-0 disabled:opacity-100',
+              drawerOpen || terminalColumnShown ? 'bg-muted text-foreground' : 'text-muted-foreground',
+            )}
             onClick={() => updateDrawer({ open: !drawerOpen })}
           >
             <TerminalIcon aria-hidden="true" />
+            <span className="max-lg:hidden">Terminal</span>
+            {terminalColumnShown ? <span className="text-xs font-normal text-muted-foreground max-xl:hidden">in column</span> : null}
           </Button>
         ) : null}
         <Separator orientation="vertical" className="mx-1 data-[orientation=vertical]:h-5" />
@@ -316,7 +361,7 @@ function WorkspaceView({
         </Button>
       </div>
     ),
-    [drawerOpen, run.id, terminalAllowed, terminalColumnShown, toggleMaximized, updateDrawer],
+    [drawerOpen, terminalAllowed, terminalColumnShown, toggleMaximized, updateDrawer],
   )
 
   /**
@@ -467,7 +512,7 @@ function WorkspaceView({
 
   return (
     <div data-route="task-workspace" data-run-id={run.id} className="flex h-full min-h-0 flex-col">
-      <RunHeader run={run} tab={headerTab} onMarkedUnread={markedUnread} tabs={tabs} trailing={trailing} />
+      <RunHeader run={run} tab={headerTab} onMarkedUnread={markedUnread} tabs={tabs} trailing={trailing} wide />
       {layouts.loadFailed ? (
         <div
           data-slot="layouts-unloaded"
@@ -523,6 +568,9 @@ function WorkspaceView({
                 }
               />
             )}
+            {draggingView ? (
+              <ViewDropZones view={draggingView} columns={layouts.layout?.columns ?? []} onDrop={dropViewHere} />
+            ) : null}
             {cover.covering && fixedActive !== null ? (
               <FullViewExit className="absolute top-2 right-3 z-20 bg-card shadow-sm" />
             ) : null}
@@ -560,6 +608,10 @@ function WorkspaceView({
             height={drawer.height}
             onHeightChange={(height) => updateDrawer({ height })}
             onClose={() => updateDrawer({ open: false })}
+            onMoveToColumn={() => {
+              updateDrawer({ open: false })
+              openBeside('terminal')
+            }}
             onOpenInBrowser={openInNewTab}
           />
         </Suspense>

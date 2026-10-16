@@ -1,4 +1,4 @@
-import { Loader2Icon, PlusIcon, SquareIcon, TerminalIcon, XIcon } from 'lucide-react'
+import { Columns2Icon, Loader2Icon, PlusIcon, SquareIcon, TerminalIcon, XIcon } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { createRunTerminal, getRunTerminal, stopRunTerminal, writeRunTerminal } from '@/api/client'
@@ -56,6 +56,7 @@ export function TerminalDrawer({
   height,
   onHeightChange,
   onClose,
+  onMoveToColumn,
   onOpenInBrowser,
   fill = false,
 }: {
@@ -64,6 +65,8 @@ export function TerminalDrawer({
   onHeightChange: (height: number) => void
   /** Absent in a workspace column, which the column's own header closes. */
   onClose?: () => void
+  /** Moves the same shells into a column of the layout. Absent in a column. */
+  onMoveToColumn?: () => void
   /** Fill a task-workspace column instead of docking at the bottom with a resizable height. */
   fill?: boolean
   /** Opens a detected address in a Browser column (spec §7). Returns false when the layout had
@@ -346,6 +349,20 @@ export function TerminalDrawer({
           >
             <SquareIcon aria-hidden="true" className="size-3" />
             Stop
+          </Button>
+        ) : null}
+        {onMoveToColumn ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            data-action="terminal-to-column"
+            title="Show these shells in a column beside the current view"
+            onClick={onMoveToColumn}
+            className="rounded text-muted-foreground"
+          >
+            <Columns2Icon aria-hidden="true" className="size-3.5" />
+            Move to column
           </Button>
         ) : null}
         {onClose ? (

@@ -31,6 +31,21 @@ export type ViewId = 'session' | 'changes' | 'commits' | 'files' | 'browser' | '
 
 export const VIEW_IDS: readonly ViewId[] = ['session', 'changes', 'commits', 'files', 'browser', 'graph', 'terminal']
 
+/** The view tabs, left to right. Chat is home; the graph is the task's shape, so it is next.
+ *  Terminal has no tab: its one control is the Terminal button, which opens the drawer. */
+export const FIXED_VIEW_ORDER: readonly ViewId[] = ['session', 'graph', 'changes', 'commits', 'files']
+
+/** The route each view tab deep-links to, for pages that are not the workspace (Notes). */
+export const VIEW_PATHS: Record<ViewId, string> = {
+  session: 'chat',
+  changes: 'changes',
+  commits: 'commits',
+  files: 'files',
+  browser: '',
+  graph: 'graph',
+  terminal: 'terminal',
+}
+
 /** What the layout cards and column headers read, and what an automatic layout name is derived
  *  from. */
 const VIEW_LABELS: Record<ViewId, string> = {
@@ -734,6 +749,49 @@ export function openBeside(
     name: made,
     index: 1,
   }
+}
+
+/**
+ * A view tab dropped onto the workspace: beside column `at` (`insert`, `at` is the slot) or over it
+ * (`replace`). A view already on screen MOVES there rather than appearing twice.
+ *
+ * A layout the user built is edited in place. A fixed card stays the one view it stands for, so
+ * the result goes to a saved layout with exactly those columns — reused when one exists, minted
+ * under the pair's name (`Chat + Code`) otherwise, as `openBeside` does.
+ */
+export function dropView(
+  state: WorkspaceState,
+  view: ViewId,
+  at: number,
+  mode: 'insert' | 'replace',
+): WorkspaceState {
+  const current = activeLayout(state)
+  const columns: WorkspaceColumn[] = current?.columns.map((column) => ({ ...column })) ?? []
+  const from = columns.findIndex((column) => column.view === view)
+  const moved = from >= 0 ? columns[from]! : newColumn(view)
+  let next: WorkspaceColumn[]
+  if (mode === 'replace') {
+    if (at < 0 || at >= columns.length) return state
+    next = [...columns]
+    if (from >= 0) next[from] = columns[at]!
+    next[at] = moved
+  } else {
+    next = from >= 0 ? columns.filter((_, index) => index !== from) : [...columns]
+    next.splice(Math.max(0, Math.min(from >= 0 && from < at ? at - 1 : at, next.length)), 0, moved)
+  }
+  if (next.length > MAX_COLUMNS) return state
+  if (current && fixedViewOf(current) === null) {
+    return replaceLayout(state, current.name, { ...current, columns: withEqualWidths(next) })
+  }
+  if (next.length === 1) return openDeepLink(state, next[0]!.view)
+  const views = next.map((column) => column.view).join('|')
+  const saved = state.layouts.find(
+    (layout) => fixedViewOf(layout) === null && layout.columns.map((column) => column.view).join('|') === views,
+  )
+  if (saved) return selectLayout(state, saved.name)
+  if (state.layouts.length >= MAX_LAYOUTS) return state
+  const name = uniqueName(next.map((column) => viewLabel(column.view)).join(' + '), state.layouts)
+  return { layouts: [...state.layouts, { name, columns: withEqualWidths(next) }], active: name }
 }
 
 /** How many cards the strip paints before the rest fold into a `Pozostałe…` menu (confirmed

@@ -7,6 +7,7 @@ import {
   closeColumn,
   closeLayout,
   defaultState,
+  dropView,
   DEFAULT_LAYOUT_NAME,
   findLayout,
   fixedViewOf,
@@ -339,6 +340,41 @@ describe('preferredActive', () => {
 
   it('falls back to the first card', () => {
     expect(preferredActive([{ name: 'Debug', columns: [] }, { name: 'Review', columns: [] }])).toBe('Debug')
+  })
+})
+
+describe('dropView', () => {
+  const views = (state: WorkspaceState) => activeLayout(state)?.columns.map((column) => column.view)
+
+  it('splits a fixed card into a saved pair, leaving the fixed card one view', () => {
+    const state = dropView(defaultState(), 'changes', 1, 'insert')
+    expect(state.active).toBe('Chat + Changes')
+    expect(views(state)).toEqual(['session', 'changes'])
+    expect(findLayout(state, 'Chat')?.columns.map((column) => column.view)).toEqual(['session'])
+  })
+
+  it('reuses a saved layout with the same columns instead of minting another', () => {
+    const once = dropView(defaultState(), 'changes', 1, 'insert')
+    const again = dropView(selectLayout(once, 'Chat'), 'changes', 1, 'insert')
+    expect(again.layouts).toHaveLength(once.layouts.length)
+    expect(again.active).toBe('Chat + Changes')
+  })
+
+  it('edits a layout the user built in place: insert, move, replace with swap', () => {
+    const built = dropView(defaultState(), 'changes', 1, 'insert')
+    const three = dropView(built, 'files', 0, 'insert')
+    expect(three.active).toBe('Chat + Changes')
+    expect(views(three)).toEqual(['files', 'session', 'changes'])
+    expect(activeLayout(three)?.columns.map((column) => column.width)).toEqual([33.33, 33.33, 33.34])
+    // Already on screen: it moves rather than appearing twice.
+    expect(views(dropView(three, 'files', 3, 'insert'))).toEqual(['session', 'changes', 'files'])
+    expect(views(dropView(three, 'changes', 0, 'replace'))).toEqual(['changes', 'session', 'files'])
+  })
+
+  it(`stops at ${MAX_COLUMNS} columns`, () => {
+    const three = dropView(dropView(defaultState(), 'changes', 1, 'insert'), 'files', 2, 'insert')
+    expect(dropView(three, 'commits', 0, 'insert')).toBe(three)
+    expect(views(dropView(three, 'commits', 1, 'replace'))).toEqual(['session', 'commits', 'files'])
   })
 })
 
